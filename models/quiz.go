@@ -15,7 +15,7 @@ type QuizQuestion struct {
 
 // MultipleChoiceQuestion holds the choices and correct answer for a multiple-choice question
 type MultipleChoiceQuestion struct {
-	CorrectChoiceIndex int      `json:"correctChoiceIndex" firestore:"correctChoiceIndex"`
+	CorrectChoiceIndex int      `json:"-" firestore:"correctChoiceIndex"`
 	Choices            []Choice `json:"choices" firestore:"choices"`
 }
 
@@ -28,7 +28,7 @@ type Choice struct {
 
 // FillQuestion holds the correct answer for a fill-in-the-blank question
 type FillQuestion struct {
-	CorrectAnswer string `json:"correctAnswer" firestore:"correctAnswer"`
+	CorrectAnswer string `json:"-" firestore:"correctAnswer"`
 }
 
 // --------------- Ordering ---------------
@@ -36,7 +36,7 @@ type FillQuestion struct {
 // OrderingQuestion holds items and the correct order for an ordering question
 type OrderingQuestion struct {
 	Items        []OrderingItem          `json:"items" firestore:"items"`
-	CorrectOrder []OrderingCorrectAnswer `json:"correctOrder" firestore:"correctOrder"`
+	CorrectOrder []OrderingCorrectAnswer `json:"-" firestore:"correctOrder"`
 }
 
 // OrderingItem is one draggable item in an ordering question
