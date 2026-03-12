@@ -31,6 +31,9 @@ go.work.sum
 # firebase secret
 *firebase*.json
 
+# temp files
+tmp/
+
 # Editor/IDE
 # .idea/
 # .vscode/

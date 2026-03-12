@@ -7,4 +7,5 @@ func SetupRoutes(r *gin.Engine) {
 	setupAuthRoutes(r)
 	setupQuizRoutes(r)
 	setupUserRoutes(r)
+	setupExerciseRoutes(r)
 }

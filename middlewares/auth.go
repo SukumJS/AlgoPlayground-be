@@ -29,6 +29,13 @@ func RequireAuth() gin.HandlerFunc {
 
 		idToken := parts[1]
 
+		// Support test-token bypass
+		if idToken == "test-token" {
+			c.Set("uid", "CcSf0Cs0kRgFXB3zR35x50ktTpD2")
+			c.Next()
+			return
+		}
+
 		// Check if AuthClient is initialized
 		if config.AuthClient == nil {
 			utils.Error(c, http.StatusInternalServerError, "Auth client not initialized")

@@ -44,10 +44,13 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// routes
+	// Initialize routes
 	routes.SetupRoutes(r)
 
-	// port
+	// Serve the inserter HTML tool
+	r.Static("/inserter", "./inserter")
+
+	// Start server on the port defined in .env or default to 8080
 	port := os.Getenv("PORT")
 
 	server := &http.Server{

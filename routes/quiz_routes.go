@@ -15,4 +15,7 @@ func setupQuizRoutes(r *gin.Engine) {
 
 	// Example: GET /quiz?algorithm=array&typeQuiz=pretest
 	quiz.GET("", handlers.GetQuizzes)
+
+	// Create multiple quizzes
+	quiz.POST("/batch", handlers.CreateQuizzes)
 }
