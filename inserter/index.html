@@ -257,11 +257,26 @@
               <textarea id="e_ex" rows="2" class="input-field font-mono" placeholder="Input: ... Output: ..."></textarea>
             </div>
 
+            <!-- Dynamic Tips Section -->
+            <div class="p-4 bg-slate-800 rounded-xl space-y-4 border border-slate-700">
+              <div class="flex justify-between items-center mb-2">
+                <label class="block text-sm font-medium text-white">Tips (Optional)</label>
+                <button onclick="addTipField()" type="button" class="text-indigo-400 hover:text-indigo-300 text-sm font-medium">+ Add Tip</button>
+              </div>
+              <div id="e_tips_container" class="space-y-4">
+                <!-- Tips inject here -->
+              </div>
+              <p class="text-xs text-slate-500">e.g. Hint 1, Pseudo Code, Time Complexity</p>
+            </div>
+
             <div class="mt-6">
               <button onclick="submitSingleExercise()" class="btn-primary">Add Single Exercise</button>
             </div>
           </div>
         `;
+
+        // Auto-add the first tip field so it's ready to use
+        addTipField();
       }
     }
 
@@ -283,16 +298,51 @@
     }
 
     async function submitSingleExercise() {
+      // Gather tips
+      const tips = [];
+      document.querySelectorAll('.tip-item').forEach(item => {
+        const label = item.querySelector('.tip-label').value;
+        const content = item.querySelector('.tip-content').value;
+        if (label || content) {
+          tips.push({ label, content });
+        }
+      });
+
+      if (tips.length === 0) {
+        showToast("Please add at least 1 tip.", true);
+        return;
+      }
+
       const e = {
         title: document.getElementById('e_title').value,
         difficulty: document.getElementById('e_diff').value,
         description: document.getElementById('e_desc').value,
         requirement: document.getElementById('e_req').value,
         example: document.getElementById('e_ex').value,
-        tips: []
+        tips: tips
       };
 
       await sendRequest('/exercise/batch', [e]);
+    }
+
+    function addTipField() {
+      const container = document.getElementById('e_tips_container');
+      const div = document.createElement('div');
+      div.className = "tip-item bg-slate-700 p-3 rounded-lg border border-slate-600 relative";
+      div.innerHTML = `
+        <button onclick="this.parentElement.remove()" type="button" class="absolute top-2 right-2 text-slate-400 hover:text-red-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <div class="space-y-3 mt-4">
+          <div>
+            <input type="text" class="tip-label input-field !py-1 !text-sm" placeholder="Label (e.g. Hint 1 or Pseudo Code)">
+          </div>
+          <div>
+            <textarea rows="2" class="tip-content input-field !py-1 !text-sm" placeholder="Tip content..."></textarea>
+          </div>
+        </div>
+      `;
+      container.appendChild(div);
     }
 
     async function submitBulk() {
