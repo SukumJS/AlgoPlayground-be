@@ -17,7 +17,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func SyncUser(token *auth.Token) (*models.User, error) {
+// SyncResponse wraps the Firestore user with email from Firebase token (not stored in Firestore)
+type SyncResponse struct {
+	models.User
+	Email string `json:"email"`
+}
+
+func SyncUser(token *auth.Token) (*SyncResponse, error) {
 	ctx := context.Background()
 
 	email, _ := token.Claims["email"].(string)
@@ -58,7 +64,7 @@ func SyncUser(token *auth.Token) (*models.User, error) {
 			}
 		}
 
-		// Create user in Firestore
+		// Create user in Firestore (email intentionally NOT stored — read from Firebase Auth token)
 		user = models.User{
 			ID:        token.UID,
 			ImageURL:  picture,
@@ -74,7 +80,7 @@ func SyncUser(token *auth.Token) (*models.User, error) {
 		doc.DataTo(&user)
 	}
 
-	return &user, nil
+	return &SyncResponse{User: user, Email: email}, nil
 }
 
 // uploadURLToS3 downloads an image and pipes it directly to S3

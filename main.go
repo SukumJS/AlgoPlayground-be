@@ -36,7 +36,12 @@ func main() {
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{allowedOrigin},
+		AllowOriginFunc: func(origin string) bool {
+			if allowedOrigin == "*" {
+				return true // dev: allow all origins
+			}
+			return origin == allowedOrigin
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

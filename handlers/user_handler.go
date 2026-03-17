@@ -23,7 +23,7 @@ func SyncUser(c *gin.Context) {
 		return
 	}
 
-	user, err := services.SyncUser(token)
+	syncResp, err := services.SyncUser(token)
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -31,7 +31,7 @@ func SyncUser(c *gin.Context) {
 
 	utils.Success(c, gin.H{
 		"message": "user synced successfully",
-		"user":    user,
+		"user":    syncResp,
 	})
 }
 
