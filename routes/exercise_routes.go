@@ -15,4 +15,7 @@ func setupExerciseRoutes(r *gin.Engine) {
 
 	// Create multiple exercises
 	exercise.POST("/batch", handlers.CreateExercises)
+
+	// Get exercises
+	exercise.GET("", handlers.GetExercises)
 }

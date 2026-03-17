@@ -29,3 +29,17 @@ func CreateExercises(c *gin.Context) {
 
 	utils.Success(c, "Exercises created successfully")
 }
+
+// GetExercises handles the retrieval of all exercises
+func GetExercises(c *gin.Context) {
+	exercises, err := services.GetExercises()
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Exercises retrieved successfully",
+		"data":    exercises,
+	})
+}
