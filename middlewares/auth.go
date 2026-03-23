@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"firebase.google.com/go/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,6 +33,15 @@ func RequireAuth() gin.HandlerFunc {
 		// Support test-token bypass
 		if idToken == "test-token" {
 			c.Set("uid", "CcSf0Cs0kRgFXB3zR35x50ktTpD2")
+
+			c.Set("token", &auth.Token{
+				UID: "CcSf0Cs0kRgFXB3zR35x50ktTpD2",
+				Claims: map[string]interface{}{
+					"email":   "test@gmail.com",
+					"picture": "",
+				},
+			})
+
 			c.Next()
 			return
 		}
