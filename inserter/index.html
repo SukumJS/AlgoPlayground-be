@@ -129,6 +129,8 @@
 
     let currentMainTab = 'quiz'; // 'quiz' | 'exercise'
     let currentMode = 'single'; // 'single' | 'bulk'
+    let currentQuizType = 'multiple_choice'; // 'multiple_choice' | 'ordering' | 'fill_blank'
+    let orderItemsCount = 4; // default for ordering
 
     // Init
     window.onload = () => render();
@@ -145,6 +147,42 @@
       document.getElementById('modeSingle').className = mode === 'single' ? 'text-indigo-400 font-medium border-b-2 border-indigo-400 pb-2 px-1 transition-all' : 'text-slate-400 font-medium pb-2 px-1 transition-all hover:text-slate-200';
       document.getElementById('modeBulk').className = mode === 'bulk' ? 'text-indigo-400 font-medium border-b-2 border-indigo-400 pb-2 px-1 transition-all' : 'text-slate-400 font-medium pb-2 px-1 transition-all hover:text-slate-200';
       render();
+    }
+
+    function switchQuizType(type) {
+      currentQuizType = type;
+      render();
+    }
+
+    function changeOrderItemsCount(change) {
+      const newCount = Math.max(2, orderItemsCount + change);
+      if (newCount === orderItemsCount) return;
+
+      const container = document.getElementById('orderItemsContainer');
+      if (!container) {
+        orderItemsCount = newCount;
+        render();
+        return;
+      }
+
+      if (newCount > orderItemsCount) {
+        for (let i = orderItemsCount; i < newCount; i++) {
+          const div = document.createElement('div');
+          div.className = "flex items-center space-x-3";
+          div.id = `orderRow_${i}`;
+          div.innerHTML = `
+            <span class="text-slate-400 font-mono">${i + 1}.</span>
+            <input type="text" id="order_${i}" class="input-field" placeholder="Item ${i + 1}">
+          `;
+          container.appendChild(div);
+        }
+      } else {
+        for (let i = orderItemsCount - 1; i >= newCount; i--) {
+          const row = document.getElementById(`orderRow_${i}`);
+          if (row) row.remove();
+        }
+      }
+      orderItemsCount = newCount;
     }
 
     function render() {
@@ -177,7 +215,7 @@
 
         area.innerHTML = `
           <div class="space-y-5">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
               <div>
                 <label class="block text-sm font-medium text-slate-300 mb-2">Algorithm</label>
                 <select id="q_algo" class="input-field">${algoOptions}</select>
@@ -187,6 +225,14 @@
                 <select id="q_typeQuiz" class="input-field">
                   <option value="pretest">Pre-Test</option>
                   <option value="posttest">Post-Test</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Question Type</label>
+                <select id="q_questionType" class="input-field" onchange="switchQuizType(this.value)">
+                  <option value="multiple_choice" ${currentQuizType === 'multiple_choice' ? 'selected' : ''}>Multiple Choice</option>
+                  <option value="ordering" ${currentQuizType === 'ordering' ? 'selected' : ''}>Ordering</option>
+                  <option value="fill_blank" ${currentQuizType === 'fill_blank' ? 'selected' : ''}>Fill in the Blank</option>
                 </select>
               </div>
             </div>
@@ -206,16 +252,44 @@
               <textarea id="q_desc" rows="2" class="input-field" placeholder="Provide extra description if needed..."></textarea>
             </div>
 
-            <div class="p-4 bg-slate-800 rounded-xl space-y-4 border border-slate-700">
-              <label class="block text-sm font-medium text-white">4 Choices (Select correct one with radio)</label>
-              
-              ${[0, 1, 2, 3].map(i => `
-                <div class="flex items-center space-x-3">
-                  <input type="radio" name="correctChoice" value="${i}" ${i === 0 ? 'checked' : ''} class="w-5 h-5 text-indigo-600 bg-slate-700 border-slate-600 focus:ring-indigo-500 focus:ring-2">
-                  <input type="text" id="choice_${i}" class="input-field" placeholder="Choice ${i + 1}">
+            ${currentQuizType === 'multiple_choice' ? `
+              <div class="p-4 bg-slate-800 rounded-xl space-y-4 border border-slate-700">
+                <label class="block text-sm font-medium text-white">Choices (Select correct one with radio)</label>
+                
+                ${[0, 1, 2, 3].map(i => `
+                  <div class="flex items-center space-x-3">
+                    <input type="radio" name="correctChoice" value="${i}" ${i === 0 ? 'checked' : ''} class="w-5 h-5 text-indigo-600 bg-slate-700 border-slate-600 focus:ring-indigo-500 focus:ring-2">
+                    <input type="text" id="choice_${i}" class="input-field" placeholder="Choice ${i + 1}">
+                  </div>
+                `).join('')}
+              </div>
+            ` : currentQuizType === 'fill_blank' ? `
+              <div class="p-4 bg-slate-800 rounded-xl space-y-4 border border-slate-700">
+                <label class="block text-sm font-medium text-white">Fill in the Blank Answer</label>
+                <input type="text" id="fill_answer" class="input-field" placeholder="Correct Answer (e.g. O(n))">
+                <p class="text-xs text-slate-400">The user must type exactly this answer (case-insensitive checking usually).</p>
+              </div>
+            ` : `
+              <div class="p-4 bg-slate-800 rounded-xl space-y-4 border border-slate-700">
+                <div class="flex justify-between items-center">
+                  <label class="block text-sm font-medium text-white">Ordering Items (Input in correct order)</label>
+                  <div class="space-x-2">
+                    <button type="button" onclick="changeOrderItemsCount(-1)" class="text-slate-400 hover:text-white px-2 py-1 bg-slate-700 rounded">-</button>
+                    <button type="button" onclick="changeOrderItemsCount(1)" class="text-slate-400 hover:text-white px-2 py-1 bg-slate-700 rounded">+</button>
+                  </div>
                 </div>
-              `).join('')}
-            </div>
+                
+                <div id="orderItemsContainer" class="space-y-4">
+                ${Array.from({ length: orderItemsCount }).map((_, i) => `
+                  <div class="flex items-center space-x-3" id="orderRow_${i}">
+                    <span class="text-slate-400 font-mono">${i + 1}.</span>
+                    <input type="text" id="order_${i}" class="input-field" placeholder="Item ${i + 1}">
+                  </div>
+                `).join('')}
+                </div>
+                <p class="text-xs text-slate-400">The frontend will display these randomly to users. Your order here is the correct answer.</p>
+              </div>
+            `}
 
             <div class="mt-6">
               <button onclick="submitSingleQuiz()" class="btn-primary">Add Single Quiz Question</button>
@@ -282,17 +356,52 @@
 
     // Handlers
     async function submitSingleQuiz() {
+      let questionData = {};
+
+      if (currentQuizType === 'multiple_choice') {
+        questionData = {
+          choices: [0, 1, 2, 3].map(i => ({ label: document.getElementById(`choice_${i}`).value })),
+          correctChoiceIndex: parseInt(document.querySelector('input[name="correctChoice"]:checked').value)
+        };
+      } else if (currentQuizType === 'fill_blank') {
+        questionData = {
+          correctAnswer: document.getElementById('fill_answer').value
+        };
+      } else if (currentQuizType === 'ordering') {
+        const items = [];
+        const correctOrder = [];
+        for (let i = 0; i < orderItemsCount; i++) {
+          const val = document.getElementById(`order_${i}`).value;
+          items.push({ label: val });
+          correctOrder.push({ label: val, position: i });
+        }
+
+        // Shuffle the items randomly
+        for (let i = items.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [items[i], items[j]] = [items[j], items[i]];
+        }
+
+        questionData = {
+          items: items,
+          correctOrder: correctOrder
+        };
+      }
+
       const q = {
-        type: "multiple_choice",
+        type: currentQuizType,
         algorithm: document.getElementById('q_algo').value,
         typeQuiz: document.getElementById('q_typeQuiz').value,
         title: document.getElementById('q_title').value,
         questionImage: document.getElementById('q_image').value,
-        question: {
-          choices: [0, 1, 2, 3].map(i => ({ label: document.getElementById(`choice_${i}`).value })),
-          correctChoiceIndex: parseInt(document.querySelector('input[name="correctChoice"]:checked').value)
-        }
+        question: questionData
       };
+
+      // Add context if it exists and is supported by backend (desc)
+      const desc = document.getElementById('q_desc') ? document.getElementById('q_desc').value : "";
+      if (desc) {
+        q.description = desc; // Assuming "Q_desc" might map to something, else harmless
+      }
 
       await sendRequest('/quiz/batch', [q]);
     }
@@ -376,7 +485,19 @@
         }
 
         showToast("Success! Data inserted.");
-        // Clear forms optionally
+        
+        // Clear all text inputs and textareas after success
+        const area = document.getElementById('contentArea');
+        if (area) {
+          const inputs = area.querySelectorAll('input[type="text"], textarea');
+          inputs.forEach(input => input.value = '');
+          
+          // Reset multiple-choice radio button to default (first choice)
+          const radios = area.querySelectorAll('input[type="radio"]');
+          if (radios.length > 0) {
+            radios[0].checked = true;
+          }
+        }
       } catch (err) {
         showToast("Error: " + err.message, true);
         console.error(err);
