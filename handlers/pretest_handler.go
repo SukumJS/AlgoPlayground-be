@@ -10,15 +10,22 @@ import (
 )
 
 // GetPretestByAlgorithm handles GET /pretests/:algorithm
+// Uses uid from auth context to check/create progress
 func GetPretestByAlgorithm(c *gin.Context) {
 	algorithm := c.Param("algorithm")
+	uid := c.GetString("uid")
 
 	if algorithm == "" {
 		utils.Error(c, http.StatusBadRequest, "algorithm parameter is required")
 		return
 	}
 
-	result, err := services.GetPretestByAlgorithm(algorithm)
+	if uid == "" {
+		utils.Error(c, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+
+	result, err := services.GetPretestByAlgorithm(uid, algorithm)
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -89,4 +96,33 @@ func CheckPretestStatus(c *gin.Context) {
 	}
 
 	utils.Success(c, status)
+}
+
+// SavePretestProgress handles PUT /pretests/:algorithm/progress
+func SavePretestProgress(c *gin.Context) {
+	algorithm := c.Param("algorithm")
+	uid := c.GetString("uid")
+
+	if algorithm == "" {
+		utils.Error(c, http.StatusBadRequest, "algorithm parameter is required")
+		return
+	}
+
+	if uid == "" {
+		utils.Error(c, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+
+	var req models.PretestProgressRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if err := services.SavePretestProgress(uid, algorithm, req.Answers); err != nil {
+		utils.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	utils.Success(c, map[string]bool{"saved": true})
 }

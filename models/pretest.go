@@ -4,9 +4,10 @@ package models
 
 // PretestResponse is the top-level response for GET /pretests/:algorithm
 type PretestResponse struct {
-	ID        string              `json:"id"`
-	Title     string              `json:"title"`
-	Questions []PretestQuestionDTO `json:"questions"`
+	ID           string              `json:"id"`
+	Title        string              `json:"title"`
+	Questions    []PretestQuestionDTO `json:"questions"`
+	SavedAnswers []PretestAnswer     `json:"savedAnswers,omitempty"`
 }
 
 // PretestQuestionDTO is one question (NO correct answer sent to frontend)
@@ -33,8 +34,8 @@ type PretestSubmission struct {
 
 // PretestAnswer is one user answer
 type PretestAnswer struct {
-	QuestionId       string `json:"questionId"`
-	SelectedChoiceId string `json:"selectedChoiceId"`
+	QuestionId       string `json:"questionId" firestore:"questionId"`
+	SelectedChoiceId string `json:"selectedChoiceId" firestore:"selectedChoiceId"`
 }
 
 // ── POST /pretests/:algorithm/submit — response ─────────────────
@@ -54,9 +55,29 @@ type PretestQuestionResult struct {
 
 // ── GET /pretests/:algorithm/status — response ──────────────────
 
-// PretestStatus tells if the user has completed the pretest
+// PretestStatus tells the user's pretest state for an algorithm
 type PretestStatus struct {
-	Completed bool `json:"completed"`
-	Score     int  `json:"score,omitempty"`
-	Total     int  `json:"total,omitempty"`
+	Completed     bool `json:"completed"`
+	InProgress    bool `json:"inProgress"`
+	Score         int  `json:"score,omitempty"`
+	Total         int  `json:"total,omitempty"`
+	AnsweredCount int  `json:"answeredCount,omitempty"`
+}
+
+// ── PUT /pretests/:algorithm/progress — request ─────────────────
+
+// PretestProgressRequest is the request body for saving progress
+type PretestProgressRequest struct {
+	Answers []PretestAnswer `json:"answers"`
+}
+
+// ── Firestore document: pretestProgress/{uid}_{algorithm} ───────
+
+// PretestProgress is stored in Firestore to track in-progress pretests
+type PretestProgress struct {
+	UID           string          `firestore:"uid"`
+	Algorithm     string          `firestore:"algorithm"`
+	QuestionIds   []string        `firestore:"questionIds"`
+	Answers       []PretestAnswer `firestore:"answers"`
+	AnsweredCount int             `firestore:"answeredCount"`
 }
