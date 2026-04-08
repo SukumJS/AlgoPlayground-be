@@ -10,4 +10,5 @@ func SetupRoutes(r *gin.Engine) {
 	setupUserRoutes(r)
 	setupExerciseRoutes(r)
 	setupPosttestRoutes(r)
+	setupProgressRoutes(r)
 }
