@@ -4,9 +4,11 @@ import "time"
 
 // User represents the main user document in Firestore
 type User struct {
-	ID        string    `json:"id" firestore:"id"` // Firebase UID
-	ImageURL  string    `json:"imageUrl" firestore:"imageUrl"`
-	UpdatedAt time.Time `json:"updatedAt" firestore:"updatedAt"`
+	ID                   string                            `json:"id" firestore:"id"` // Firebase UID
+	ImageURL             string                            `json:"imageUrl" firestore:"imageUrl"`
+	UpdatedAt            time.Time                         `json:"updatedAt" firestore:"updatedAt"`
+	Progress             UserProgress                      `json:"progress" firestore:"progress"`
+	CategoryAlgoProgress UserCategoryAlgoProgressInProfile `json:"categoryAlgoProgress" firestore:"categoryAlgoProgress"`
 }
 
 // UserProgress tracks overall learning progress

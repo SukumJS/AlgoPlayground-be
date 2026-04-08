@@ -23,6 +23,50 @@ type SyncResponse struct {
 	Email string `json:"email"`
 }
 
+func defaultUserProgress(uid string) models.UserProgress {
+	return models.UserProgress{
+		UserID:        uid,
+		TotalProgress: 0,
+		PretestScore:  0,
+		PosttestScore: 0,
+	}
+}
+
+func defaultUserCategoryAlgoProgress(uid string) models.UserCategoryAlgoProgressInProfile {
+	return models.UserCategoryAlgoProgressInProfile{
+		UserID:    uid,
+		Linear:    0,
+		Trees:     0,
+		Graph:     0,
+		Sorting:   0,
+		Searching: 0,
+	}
+}
+
+func ensureUserProfileDefaults(ctx context.Context, docRef *firestore.DocumentRef, doc *firestore.DocumentSnapshot, user *models.User, uid string) error {
+	updates := make([]firestore.Update, 0, 2)
+
+	if _, err := doc.DataAt("progress"); err != nil || user.Progress.UserID == "" {
+		user.Progress = defaultUserProgress(uid)
+		updates = append(updates, firestore.Update{Path: "progress", Value: user.Progress})
+	}
+
+	if _, err := doc.DataAt("categoryAlgoProgress"); err != nil || user.CategoryAlgoProgress.UserID == "" {
+		user.CategoryAlgoProgress = defaultUserCategoryAlgoProgress(uid)
+		updates = append(updates, firestore.Update{Path: "categoryAlgoProgress", Value: user.CategoryAlgoProgress})
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if _, err := docRef.Update(ctx, updates); err != nil {
+		return fmt.Errorf("failed to initialize user profile progress fields: %v", err)
+	}
+
+	return nil
+}
+
 func SyncUser(token *auth.Token) (*SyncResponse, error) {
 	ctx := context.Background()
 
@@ -66,9 +110,11 @@ func SyncUser(token *auth.Token) (*SyncResponse, error) {
 
 		// Create user in Firestore (email intentionally NOT stored — read from Firebase Auth token)
 		user = models.User{
-			ID:        token.UID,
-			ImageURL:  picture,
-			UpdatedAt: time.Now(),
+			ID:                   token.UID,
+			ImageURL:             picture,
+			UpdatedAt:            time.Now(),
+			Progress:             defaultUserProgress(token.UID),
+			CategoryAlgoProgress: defaultUserCategoryAlgoProgress(token.UID),
 		}
 		if _, err = docRef.Set(ctx, user); err != nil {
 			return nil, fmt.Errorf("failed to create user: %v", err)
@@ -78,6 +124,10 @@ func SyncUser(token *auth.Token) (*SyncResponse, error) {
 	} else {
 		// Load existing
 		doc.DataTo(&user)
+
+		if err := ensureUserProfileDefaults(ctx, docRef, doc, &user, token.UID); err != nil {
+			return nil, err
+		}
 	}
 
 	return &SyncResponse{User: user, Email: email}, nil
