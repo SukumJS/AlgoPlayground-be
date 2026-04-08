@@ -37,6 +37,14 @@ type FillQuestion struct {
 type OrderingQuestion struct {
 	Items        []OrderingItem          `json:"items" firestore:"items"`
 	CorrectOrder []OrderingCorrectAnswer `json:"-" firestore:"correctOrder"`
+	CanvasData   *CanvasData             `json:"canvasData,omitempty" firestore:"canvasData,omitempty"`
+}
+
+// CanvasData holds ReactFlow nodes/edges for tree/graph ordering questions
+type CanvasData struct {
+	CanvasType string                   `json:"canvasType" firestore:"canvasType"` // "tree" | "graph"
+	Nodes      []map[string]interface{} `json:"nodes" firestore:"nodes"`
+	Edges      []map[string]interface{} `json:"edges" firestore:"edges"`
 }
 
 // OrderingItem is one draggable item in an ordering question

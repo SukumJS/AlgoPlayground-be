@@ -247,20 +247,17 @@ func gradeOnePosttestQuestion(q models.QuizQuestion, answer models.PosttestAnswe
 		var ord models.OrderingQuestion
 		_ = mapstructure.Decode(mapData, &ord)
 
-		// Build items slice and label→id map
-		items := make([]models.PosttestOrderItemDTO, len(ord.Items))
-		labelToID := make(map[string]string)
-		for i, item := range ord.Items {
-			id := fmt.Sprintf("i%d", i)
-			items[i] = models.PosttestOrderItemDTO{ID: id, Label: item.Label}
-			labelToID[item.Label] = id
-		}
+		_, labelToIDs := mapOrderingItemsToIDs(ord.Items, ord.CanvasData)
 
 		// Build correct order by label→position mapping
 		correctOrder := make([]string, len(ord.CorrectOrder))
+		labelUseCount := make(map[string]int)
 		for _, co := range ord.CorrectOrder {
-			if id, ok := labelToID[co.Label]; ok && co.Position >= 0 && co.Position < len(correctOrder) {
-				correctOrder[co.Position] = id
+			ids := labelToIDs[co.Label]
+			useIdx := labelUseCount[co.Label]
+			if co.Position >= 0 && co.Position < len(correctOrder) && useIdx < len(ids) {
+				correctOrder[co.Position] = ids[useIdx]
+				labelUseCount[co.Label] = useIdx + 1
 			}
 		}
 		result.CorrectOrder = correctOrder
@@ -320,6 +317,52 @@ func GetPosttestStatus(uid string, algorithm string) (*models.PosttestStatus, er
 
 type parsedPosttestQuestion struct {
 	quiz models.QuizQuestion
+}
+
+func mapOrderingItemsToIDs(items []models.OrderingItem, canvasData *models.CanvasData) ([]models.PosttestOrderItemDTO, map[string][]string) {
+	result := make([]models.PosttestOrderItemDTO, len(items))
+	labelToIDs := make(map[string][]string)
+
+	if canvasData == nil {
+		for i, item := range items {
+			id := fmt.Sprintf("i%d", i)
+			result[i] = models.PosttestOrderItemDTO{ID: id, Label: item.Label}
+			labelToIDs[item.Label] = append(labelToIDs[item.Label], id)
+		}
+		return result, labelToIDs
+	}
+
+	usedNodeIdx := make(map[int]bool)
+	for i, item := range items {
+		id := fmt.Sprintf("i%d", i)
+
+		for nodeIdx, node := range canvasData.Nodes {
+			if usedNodeIdx[nodeIdx] {
+				continue
+			}
+			data, ok := node["data"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			label, ok := data["label"].(string)
+			if !ok || label != item.Label {
+				continue
+			}
+			nodeID, ok := node["id"].(string)
+			if !ok || nodeID == "" {
+				continue
+			}
+
+			id = nodeID
+			usedNodeIdx[nodeIdx] = true
+			break
+		}
+
+		result[i] = models.PosttestOrderItemDTO{ID: id, Label: item.Label}
+		labelToIDs[item.Label] = append(labelToIDs[item.Label], id)
+	}
+
+	return result, labelToIDs
 }
 
 func selectPosttestQuestions(all []parsedPosttestQuestion, count int) []parsedPosttestQuestion {
@@ -434,17 +477,18 @@ func transformPosttestToDTO(q models.QuizQuestion) *models.PosttestQuestionDTO {
 		var ord models.OrderingQuestion
 		_ = mapstructure.Decode(mapData, &ord)
 
-		items := make([]models.PosttestOrderItemDTO, len(ord.Items))
-		for i, item := range ord.Items {
-			items[i] = models.PosttestOrderItemDTO{
-				ID:    fmt.Sprintf("i%d", i),
-				Label: item.Label,
-			}
-		}
+		items, _ := mapOrderingItemsToIDs(ord.Items, ord.CanvasData)
 
-		dto.Question = models.PosttestOrderingDTO{
+		ordDTO := models.PosttestOrderingDTO{
 			Items: items,
 		}
+
+		// Pass through canvasData if present (tree/graph ordering)
+		if ord.CanvasData != nil {
+			ordDTO.CanvasData = ord.CanvasData
+		}
+
+		dto.Question = ordDTO
 	}
 
 	return dto

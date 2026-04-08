@@ -131,6 +131,7 @@
     let currentMode = 'single'; // 'single' | 'bulk'
     let currentQuizType = 'multiple_choice'; // 'multiple_choice' | 'ordering' | 'fill_blank'
     let orderItemsCount = 4; // default for ordering
+    let canvasDragState = null;
 
     // Init
     window.onload = () => render();
@@ -153,6 +154,369 @@
       currentQuizType = type;
       render();
     }
+
+    let canvasNodeCount = 0;
+    let canvasEdgeCount = 0;
+
+    function toggleCanvasSection() {
+      const sel = document.getElementById('q_canvasType');
+      const section = document.getElementById('canvasDataSection');
+      const edgeHint = document.getElementById('edgeHint');
+      if (sel && section) {
+        section.style.display = sel.value === 'none' ? 'none' : 'block';
+        // Update edge hint based on type
+        if (edgeHint) {
+          edgeHint.textContent = sel.value === 'tree'
+            ? 'Tree: direction = which side the child is on (left/right of parent)'
+            : 'Graph: weight = edge weight label (optional)';
+        }
+        // Re-render edges if switching type
+        const container = document.getElementById('canvasEdgesContainer');
+        if (container) {
+          container.innerHTML = '';
+          canvasEdgeCount = 0;
+        }
+      }
+    }
+
+    function attachCanvasToggle() {
+      const sel = document.getElementById('q_canvasType');
+      if (sel) {
+        sel.addEventListener('change', toggleCanvasSection);
+      }
+      // Reset
+      canvasNodeCount = 0;
+      canvasEdgeCount = 0;
+    }
+
+    function addCanvasNode() {
+      const container = document.getElementById('canvasNodesContainer');
+      if (!container) return;
+      const i = canvasNodeCount++;
+      const div = document.createElement('div');
+      div.className = "flex items-center space-x-2 canvas-node-row";
+      div.id = `canvasNodeRow_${i}`;
+      div.innerHTML = `
+        <input type="text" id="cn_label_${i}" class="input-field !py-1 !text-sm" style="width:80px" placeholder="Label" oninput="updateCanvasPreview()">
+        <span class="text-slate-500 text-xs">X:</span>
+        <input type="number" id="cn_x_${i}" class="input-field !py-1 !text-sm" style="width:70px" placeholder="200" oninput="updateCanvasPreview()">
+        <span class="text-slate-500 text-xs">Y:</span>
+        <input type="number" id="cn_y_${i}" class="input-field !py-1 !text-sm" style="width:70px" placeholder="30" oninput="updateCanvasPreview()">
+        <button type="button" onclick="this.parentElement.remove(); updateCanvasPreview();" class="text-slate-400 hover:text-red-400 text-sm px-1">✕</button>
+      `;
+      container.appendChild(div);
+      updateCanvasPreview();
+    }
+
+    function addCanvasEdge() {
+      const container = document.getElementById('canvasEdgesContainer');
+      if (!container) return;
+      const canvasType = document.getElementById('q_canvasType')?.value || 'tree';
+      const i = canvasEdgeCount++;
+      const div = document.createElement('div');
+      div.className = "flex items-center space-x-2 canvas-edge-row";
+      div.id = `canvasEdgeRow_${i}`;
+
+      if (canvasType === 'tree') {
+        div.innerHTML = `
+          <span class="text-slate-500 text-xs shrink-0">From:</span>
+          <input type="text" id="ce_src_${i}" class="input-field !py-1 !text-sm" style="width:70px" placeholder="10" oninput="updateCanvasPreview()">
+          <span class="text-slate-500 text-xs shrink-0">→ To:</span>
+          <input type="text" id="ce_tgt_${i}" class="input-field !py-1 !text-sm" style="width:70px" placeholder="5" oninput="updateCanvasPreview()">
+          <select id="ce_dir_${i}" class="input-field !py-1 !text-sm" style="width:80px" onchange="updateCanvasPreview()">
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+          <button type="button" onclick="this.parentElement.remove(); updateCanvasPreview();" class="text-slate-400 hover:text-red-400 text-sm px-1">✕</button>
+        `;
+      } else {
+        div.innerHTML = `
+          <span class="text-slate-500 text-xs shrink-0">From:</span>
+          <input type="text" id="ce_src_${i}" class="input-field !py-1 !text-sm" style="width:70px" placeholder="A" oninput="updateCanvasPreview()">
+          <span class="text-slate-500 text-xs shrink-0">→ To:</span>
+          <input type="text" id="ce_tgt_${i}" class="input-field !py-1 !text-sm" style="width:70px" placeholder="B" oninput="updateCanvasPreview()">
+          <span class="text-slate-500 text-xs shrink-0">Weight:</span>
+          <input type="text" id="ce_wt_${i}" class="input-field !py-1 !text-sm" style="width:50px" placeholder="5" oninput="updateCanvasPreview()">
+          <button type="button" onclick="this.parentElement.remove(); updateCanvasPreview();" class="text-slate-400 hover:text-red-400 text-sm px-1">✕</button>
+        `;
+      }
+      container.appendChild(div);
+      updateCanvasPreview();
+    }
+
+    function buildCanvasData() {
+      const canvasType = document.getElementById('q_canvasType')?.value;
+      if (!canvasType || canvasType === 'none') return null;
+
+      // Build nodes
+      const nodes = [];
+      const labelToNodeId = {};
+      const duplicateNodeLabels = [];
+      document.querySelectorAll('.canvas-node-row').forEach(row => {
+        const label = row.querySelector('[id^="cn_label_"]')?.value?.trim();
+        const x = parseInt(row.querySelector('[id^="cn_x_"]')?.value) || 0;
+        const y = parseInt(row.querySelector('[id^="cn_y_"]')?.value) || 0;
+        if (!label) return;
+        const rowSuffix = (row.id || '').replace('canvasNodeRow_', '');
+        const nodeId = 'n' + rowSuffix;
+        if (labelToNodeId[label]) {
+          duplicateNodeLabels.push(label);
+        }
+        labelToNodeId[label] = nodeId;
+        nodes.push({
+          id: nodeId,
+          type: 'custom',
+          data: { label: label, variant: 'circle' },
+          position: { x, y }
+        });
+      });
+
+      // Build edges
+      const edges = [];
+      const invalidEdges = [];
+      document.querySelectorAll('.canvas-edge-row').forEach(row => {
+        const src = row.querySelector('[id^="ce_src_"]')?.value?.trim();
+        const tgt = row.querySelector('[id^="ce_tgt_"]')?.value?.trim();
+        if (!src || !tgt) return;
+        const srcId = labelToNodeId[src];
+        const tgtId = labelToNodeId[tgt];
+        if (!srcId || !tgtId) {
+          invalidEdges.push({ from: src, to: tgt });
+          return;
+        }
+
+        if (canvasType === 'tree') {
+          const dir = row.querySelector('[id^="ce_dir_"]')?.value || 'left';
+          edges.push({
+            id: `e-${src}-${tgt}`,
+            source: srcId,
+            sourceHandle: dir === 'left' ? 'source-bottom-left' : 'source-bottom-right',
+            target: tgtId,
+            targetHandle: dir === 'left' ? 'target-top-right' : 'target-top-left',
+            type: 'tree',
+            style: { strokeWidth: 2, stroke: '#5D5D5D' }
+          });
+        } else {
+          const wt = row.querySelector('[id^="ce_wt_"]')?.value?.trim() || '';
+          const edge = {
+            id: `eg-${src}-${tgt}`,
+            source: srcId,
+            target: tgtId,
+            type: 'floatingEdge',
+            style: { stroke: '#222121', strokeWidth: 1 },
+            markerEnd: { type: 'arrowclosed', width: 25, height: 25, color: '#222121' }
+          };
+          if (wt) {
+            edge.label = wt;
+            edge.data = { weight: isNaN(Number(wt)) ? wt : Number(wt) };
+          }
+          edges.push(edge);
+        }
+      });
+
+      return {
+        canvasType,
+        nodes,
+        edges,
+        _issues: {
+          duplicateNodeLabels,
+          invalidEdges,
+        }
+      };
+    }
+
+    function updateCanvasPreview() {
+      // JSON preview
+      const jsonPreview = document.getElementById('canvasJsonPreview');
+      if (jsonPreview) {
+        const data = buildCanvasData();
+        const payloadPreview = data ? {
+          canvasType: data.canvasType,
+          nodes: data.nodes,
+          edges: data.edges,
+        } : null;
+        jsonPreview.textContent = payloadPreview ? JSON.stringify(payloadPreview, null, 2) : '(no canvas data)';
+      }
+      // Visual SVG preview
+      renderCanvasSvgPreview();
+    }
+
+    function renderCanvasSvgPreview() {
+      const svg = document.getElementById('canvasPreviewSvg');
+      const emptyMsg = document.getElementById('canvasPreviewEmpty');
+      if (!svg) return;
+
+      const canvasType = document.getElementById('q_canvasType')?.value || 'tree';
+
+      // Collect nodes
+      const nodes = [];
+      document.querySelectorAll('.canvas-node-row').forEach(row => {
+        const label = row.querySelector('[id^="cn_label_"]')?.value?.trim();
+        const x = parseInt(row.querySelector('[id^="cn_x_"]')?.value) || 0;
+        const y = parseInt(row.querySelector('[id^="cn_y_"]')?.value) || 0;
+        if (label) {
+          nodes.push({
+            id: 'n' + (row.id || '').replace('canvasNodeRow_', ''),
+            rowId: row.id,
+            label,
+            x,
+            y
+          });
+        }
+      });
+
+      const labelToNode = {};
+      nodes.forEach(n => {
+        labelToNode[n.label] = n;
+      });
+
+      // Collect edges
+      const edges = [];
+      document.querySelectorAll('.canvas-edge-row').forEach(row => {
+        const src = row.querySelector('[id^="ce_src_"]')?.value?.trim();
+        const tgt = row.querySelector('[id^="ce_tgt_"]')?.value?.trim();
+        if (!src || !tgt) return;
+        const srcNode = labelToNode[src];
+        const tgtNode = labelToNode[tgt];
+        if (!srcNode || !tgtNode) return;
+        const edge = { srcId: srcNode.id, tgtId: tgtNode.id };
+        if (canvasType === 'graph') {
+          edge.weight = row.querySelector('[id^="ce_wt_"]')?.value?.trim() || '';
+        }
+        edges.push(edge);
+      });
+
+      if (nodes.length === 0) {
+        svg.innerHTML = '';
+        if (emptyMsg) emptyMsg.style.display = 'flex';
+        return;
+      }
+      if (emptyMsg) emptyMsg.style.display = 'none';
+
+      // Calculate offset to fit within the preview box with padding
+      const padding = 40;
+      const nodeR = 28;
+      const svgRect = svg.getBoundingClientRect();
+      const svgW = svgRect.width || 500;
+      const svgH = svgRect.height || 320;
+
+      const minX = Math.min(...nodes.map(n => n.x));
+      const minY = Math.min(...nodes.map(n => n.y));
+      const maxX = Math.max(...nodes.map(n => n.x));
+      const maxY = Math.max(...nodes.map(n => n.y));
+      const dataW = (maxX - minX) || 1;
+      const dataH = (maxY - minY) || 1;
+      const scale = Math.min((svgW - padding * 2) / (dataW + nodeR * 2), (svgH - padding * 2) / (dataH + nodeR * 2), 1.5);
+
+      const offsetX = (svgW - dataW * scale) / 2 - minX * scale;
+      const offsetY = (svgH - dataH * scale) / 2 - minY * scale;
+
+      const tx = (n) => n.x * scale + offsetX;
+      const ty = (n) => n.y * scale + offsetY;
+      const nodeMap = {};
+      nodes.forEach(n => nodeMap[n.id] = n);
+
+      let html = '';
+
+      // Arrowhead marker for graph
+      if (canvasType === 'graph') {
+        html += `<defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto" fill="#222121">
+            <polygon points="0 0, 10 3.5, 0 7" />
+          </marker>
+        </defs>`;
+      }
+
+      // Draw edges
+      edges.forEach(e => {
+        const src = nodeMap[e.srcId];
+        const tgt = nodeMap[e.tgtId];
+        if (!src || !tgt) return;
+
+        const x1 = tx(src), y1 = ty(src);
+        const x2 = tx(tgt), y2 = ty(tgt);
+
+        // Shorten line so it doesn't overlap circles
+        const r = nodeR * scale / 1.5;
+        const dx = x2 - x1, dy = y2 - y1;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const sx = x1 + (dx / dist) * r;
+        const sy = y1 + (dy / dist) * r;
+        const ex = x2 - (dx / dist) * r;
+        const ey = y2 - (dy / dist) * r;
+
+        if (canvasType === 'graph') {
+          html += `<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="#222121" stroke-width="1" marker-end="url(#arrowhead)" />`;
+          // Weight label
+          if (e.weight) {
+            const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+            html += `<rect x="${mx - 10}" y="${my - 9}" width="20" height="18" rx="3" fill="white" stroke="#ccc" stroke-width="0.5" />`;
+            html += `<text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="11" font-weight="600" fill="#333">${e.weight}</text>`;
+          }
+        } else {
+          html += `<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="#5D5D5D" stroke-width="2" />`;
+        }
+      });
+
+      // Draw nodes
+      nodes.forEach(n => {
+        const cx = tx(n), cy = ty(n);
+        const r = nodeR * scale / 1.5;
+        html += `<g class="canvas-preview-node" data-row-id="${n.rowId}" data-scale="${scale}">`;
+        html += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#D9E363" stroke="#5D5D5D" stroke-width="2" />`;
+        html += `<text x="${cx}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle" font-size="${Math.max(11, 14 * scale / 1.5)}" font-weight="700" fill="#222">${n.label}</text>`;
+        html += `</g>`;
+      });
+
+      svg.innerHTML = html;
+
+      const previewNodes = svg.querySelectorAll('.canvas-preview-node');
+      previewNodes.forEach(el => {
+        el.style.cursor = 'grab';
+        el.addEventListener('mousedown', (event) => {
+          const rowId = el.getAttribute('data-row-id');
+          const scaleAttr = Number(el.getAttribute('data-scale') || '1');
+          if (!rowId) return;
+
+          const row = document.getElementById(rowId);
+          if (!row) return;
+          const xInput = row.querySelector('[id^="cn_x_"]');
+          const yInput = row.querySelector('[id^="cn_y_"]');
+          if (!xInput || !yInput) return;
+
+          canvasDragState = {
+            rowId,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            startX: parseFloat(xInput.value || '0') || 0,
+            startY: parseFloat(yInput.value || '0') || 0,
+            scale: scaleAttr || 1,
+          };
+          event.preventDefault();
+        });
+      });
+    }
+
+    window.addEventListener('mousemove', (event) => {
+      if (!canvasDragState) return;
+      const row = document.getElementById(canvasDragState.rowId);
+      if (!row) return;
+
+      const xInput = row.querySelector('[id^="cn_x_"]');
+      const yInput = row.querySelector('[id^="cn_y_"]');
+      if (!xInput || !yInput) return;
+
+      const dx = (event.clientX - canvasDragState.startClientX) / canvasDragState.scale;
+      const dy = (event.clientY - canvasDragState.startClientY) / canvasDragState.scale;
+
+      xInput.value = String(Math.round(canvasDragState.startX + dx));
+      yInput.value = String(Math.round(canvasDragState.startY + dy));
+      updateCanvasPreview();
+    });
+
+    window.addEventListener('mouseup', () => {
+      canvasDragState = null;
+    });
 
     function changeOrderItemsCount(change) {
       const newCount = Math.max(2, orderItemsCount + change);
@@ -278,7 +642,7 @@
                     <button type="button" onclick="changeOrderItemsCount(1)" class="text-slate-400 hover:text-white px-2 py-1 bg-slate-700 rounded">+</button>
                   </div>
                 </div>
-                
+
                 <div id="orderItemsContainer" class="space-y-4">
                 ${Array.from({ length: orderItemsCount }).map((_, i) => `
                   <div class="flex items-center space-x-3" id="orderRow_${i}">
@@ -288,6 +652,55 @@
                 `).join('')}
                 </div>
                 <p class="text-xs text-slate-400">The frontend will display these randomly to users. Your order here is the correct answer.</p>
+
+                <!-- Canvas Data (for tree/graph ordering) -->
+                <div class="mt-4 pt-4 border-t border-slate-600">
+                  <label class="block text-sm font-medium text-white mb-2">Canvas Type (Optional — for tree/graph visualization)</label>
+                  <select id="q_canvasType" class="input-field mb-3">
+                    <option value="none">None (drag-and-drop only)</option>
+                    <option value="tree">Tree</option>
+                    <option value="graph">Graph</option>
+                  </select>
+                  <div id="canvasDataSection" style="display:none;" class="space-y-4">
+
+                    <!-- Nodes -->
+                    <div>
+                      <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-medium text-slate-300">Nodes</label>
+                        <button type="button" onclick="addCanvasNode()" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">+ Add Node</button>
+                      </div>
+                      <div class="text-xs text-slate-500 mb-2">Node ID is auto-generated and stable. Connect edges using node labels in the form fields.</div>
+                      <div id="canvasNodesContainer" class="space-y-2"></div>
+                    </div>
+
+                    <!-- Edges -->
+                    <div>
+                      <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-medium text-slate-300">Edges</label>
+                        <button type="button" onclick="addCanvasEdge()" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">+ Add Edge</button>
+                      </div>
+                      <div id="canvasEdgesContainer" class="space-y-2"></div>
+                      <p class="text-xs text-slate-500 mt-1" id="edgeHint">Tree: direction = which side the child is on (left/right of parent)</p>
+                    </div>
+
+                    <!-- Visual Preview -->
+                    <div class="mt-3">
+                      <label class="block text-xs font-medium text-slate-300 mb-2">Preview</label>
+                      <div id="canvasVisualPreview" class="w-full rounded-xl border-2 border-slate-600 overflow-hidden bg-white" style="height: 320px; position: relative;">
+                        <svg id="canvasPreviewSvg" width="100%" height="100%"></svg>
+                        <div id="canvasPreviewEmpty" class="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+                          Add nodes to see preview
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- JSON Preview (collapsible) -->
+                    <details class="mt-2">
+                      <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-300">View Raw JSON</summary>
+                      <pre id="canvasJsonPreview" class="mt-2 p-3 bg-slate-900 rounded-lg text-xs text-green-400 font-mono overflow-auto max-h-48"></pre>
+                    </details>
+                  </div>
+                </div>
               </div>
             `}
 
@@ -296,6 +709,10 @@
             </div>
           </div>
         `;
+        // Attach canvas type toggle for ordering
+        if (currentQuizType === 'ordering') {
+          setTimeout(() => attachCanvasToggle(), 0);
+        }
       } else {
         // Exercise Single Form
         area.innerHTML = `
@@ -370,8 +787,18 @@
       } else if (currentQuizType === 'ordering') {
         const items = [];
         const correctOrder = [];
+        const seenItemLabels = new Set();
         for (let i = 0; i < orderItemsCount; i++) {
-          const val = document.getElementById(`order_${i}`).value;
+          const val = document.getElementById(`order_${i}`).value.trim();
+          if (!val) {
+            showToast(`Ordering item ${i + 1} is empty.`, true);
+            return;
+          }
+          if (seenItemLabels.has(val)) {
+            showToast(`Duplicate ordering item label: "${val}"`, true);
+            return;
+          }
+          seenItemLabels.add(val);
           items.push({ label: val });
           correctOrder.push({ label: val, position: i });
         }
@@ -386,6 +813,37 @@
           items: items,
           correctOrder: correctOrder
         };
+
+        // Add canvasData if canvas type is selected
+        const canvasData = buildCanvasData();
+        if (canvasData) {
+          if (canvasData.nodes.length === 0) {
+            showToast("Canvas requires at least 1 node.", true);
+            return;
+          }
+          if (canvasData._issues?.duplicateNodeLabels?.length) {
+            showToast(`Duplicate node label(s): ${canvasData._issues.duplicateNodeLabels.join(', ')}`, true);
+            return;
+          }
+          if (canvasData._issues?.invalidEdges?.length) {
+            const invalid = canvasData._issues.invalidEdges[0];
+            showToast(`Invalid edge: ${invalid.from} -> ${invalid.to}. Node label not found.`, true);
+            return;
+          }
+
+          const canvasLabels = new Set(canvasData.nodes.map(n => String(n.data?.label || '').trim()).filter(Boolean));
+          for (const item of items) {
+            if (!canvasLabels.has(item.label)) {
+              showToast(`Ordering item "${item.label}" has no matching canvas node label.`, true);
+              return;
+            }
+          }
+          questionData.canvasData = {
+            canvasType: canvasData.canvasType,
+            nodes: canvasData.nodes,
+            edges: canvasData.edges,
+          };
+        }
       }
 
       const q = {

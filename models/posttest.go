@@ -39,7 +39,8 @@ type PosttestFillBlankDTO struct{}
 
 // PosttestOrderingDTO — items only, NO correctOrder
 type PosttestOrderingDTO struct {
-	Items []PosttestOrderItemDTO `json:"items"`
+	Items      []PosttestOrderItemDTO `json:"items"`
+	CanvasData *CanvasData            `json:"canvasData,omitempty"`
 }
 
 // PosttestOrderItemDTO is one draggable item
