@@ -60,7 +60,7 @@ func GetPretestByAlgorithm(uid string, algorithm string) (*models.PretestRespons
 
 	questions := make([]models.PretestQuestionDTO, 0, len(docs))
 	questionIds := make([]string, 0, len(docs))
-
+	fmt.Printf(" Debug: Found %d documents for algorithm: %s\n", len(docs), algorithm)
 	for _, doc := range docs {
 		var q models.QuizQuestion
 		if err := doc.DataTo(&q); err != nil {
@@ -159,10 +159,10 @@ func SavePretestProgress(uid string, algorithm string, answers []models.PretestA
 		}
 	}
 
-	_, err := config.Firestore.Collection("pretestProgress").Doc(docID).Update(ctx, []firestore.Update{
-		{Path: "answers", Value: answers},
-		{Path: "answeredCount", Value: answeredCount},
-	})
+	_, err := config.Firestore.Collection("pretestProgress").Doc(docID).Set(ctx, map[string]interface{}{
+		"answers":       answers,
+		"answeredCount": answeredCount,
+	}, firestore.MergeAll)
 
 	if err != nil {
 		return fmt.Errorf("failed to save pretest progress: %v", err)
@@ -297,4 +297,3 @@ func toTitleCase(slug string) string {
 	}
 	return strings.Join(words, " ")
 }
-

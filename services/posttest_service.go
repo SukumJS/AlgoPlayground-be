@@ -113,10 +113,11 @@ func SavePosttestProgress(uid string, algorithm string, answers []models.Posttes
 		}
 	}
 
-	_, err := config.Firestore.Collection("posttestProgress").Doc(docID).Update(ctx, []firestore.Update{
-		{Path: "answers", Value: answers},
-		{Path: "answeredCount", Value: answeredCount},
-	})
+	// แก้ไขจาก Update เป็น Set พร้อม MergeAll
+	_, err := config.Firestore.Collection("posttestProgress").Doc(docID).Set(ctx, map[string]interface{}{
+		"answers":       answers,
+		"answeredCount": answeredCount,
+	}, firestore.MergeAll) // MergeAll จะช่วยให้อัปเดตเฉพาะฟิลด์โดยไม่ทับข้อมูลอื่นที่มีอยู่
 
 	if err != nil {
 		return fmt.Errorf("failed to save posttest progress: %v", err)
