@@ -201,6 +201,10 @@ func GradePosttest(uid string, algorithm string, submission models.PosttestSubmi
 	// Delete progress document
 	_, _ = config.Firestore.Collection("posttestProgress").Doc(docID).Delete(ctx)
 
+	if err := RefreshUserProfileProgress(uid); err != nil {
+		fmt.Printf("Warning: failed to refresh user profile progress after posttest submit: %v\n", err)
+	}
+
 	return gradingResult, nil
 }
 
