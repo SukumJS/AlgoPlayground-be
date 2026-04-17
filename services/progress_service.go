@@ -296,7 +296,7 @@ func RefreshUserProfileProgress(uid string) error {
 
 	totalProgress := 0.0
 	if totalAlgorithms > 0 {
-		totalProgress = float64(totalCompleted)
+		totalProgress = (float64(totalCompleted) / float64(totalAlgorithms)) * 100
 	}
 
 	progress := models.UserProgress{
