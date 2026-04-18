@@ -22,4 +22,10 @@ func setupPosttestRoutes(r *gin.Engine) {
 
 	// GET /posttests/:algorithm/status — check posttest state
 	posttests.GET("/:algorithm/status", handlers.CheckPosttestStatus)
+
+	// PATCH /posttests/:algorithm/reminder-seen — mark reminder as seen (idempotent)
+	posttests.PATCH("/:algorithm/reminder-seen", handlers.MarkPosttestReminderSeen)
+
+	// PATCH /posttests/:algorithm/reminder-reset — reset reminder (dev/test only)
+	posttests.PATCH("/:algorithm/reminder-reset", handlers.ResetPosttestReminder)
 }

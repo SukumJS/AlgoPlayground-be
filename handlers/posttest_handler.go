@@ -4,6 +4,7 @@ import (
 	"algoplayground/models"
 	"algoplayground/services"
 	"algoplayground/utils"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -119,9 +120,95 @@ func CheckPosttestStatus(c *gin.Context) {
 
 	status, err := services.GetPosttestStatus(uid, algorithm)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidAlgorithm) {
+			utils.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	utils.Success(c, status)
+}
+
+// MarkPosttestReminderSeen handles PATCH /posttests/:algorithm/reminder-seen
+func MarkPosttestReminderSeen(c *gin.Context) {
+	algorithm := c.Param("algorithm")
+	uid := c.GetString("uid")
+
+	if algorithm == "" {
+		utils.Error(c, http.StatusBadRequest, "algorithm parameter is required")
+		return
+	}
+
+	if uid == "" {
+		utils.Error(c, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+
+	var req models.PosttestReminderSeenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if !req.Seen {
+		utils.Error(c, http.StatusBadRequest, "seen must be true")
+		return
+	}
+
+	state, err := services.MarkPosttestReminderSeen(uid, algorithm, req.Source)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidAlgorithm) || errors.Is(err, services.ErrInvalidReminderSource) {
+			utils.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		utils.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	utils.Success(c, state)
+}
+
+// ResetPosttestReminder handles PATCH /posttests/:algorithm/reminder-reset
+func ResetPosttestReminder(c *gin.Context) {
+	algorithm := c.Param("algorithm")
+	uid := c.GetString("uid")
+
+	if algorithm == "" {
+		utils.Error(c, http.StatusBadRequest, "algorithm parameter is required")
+		return
+	}
+
+	if uid == "" {
+		utils.Error(c, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+
+	var req models.PosttestReminderResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if !req.Reset {
+		utils.Error(c, http.StatusBadRequest, "reset must be true")
+		return
+	}
+
+	state, err := services.ResetPosttestReminder(uid, algorithm)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidAlgorithm) {
+			utils.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrReminderResetDisabled) {
+			utils.Error(c, http.StatusForbidden, err.Error())
+			return
+		}
+		utils.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	utils.Success(c, state)
 }

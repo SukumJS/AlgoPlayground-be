@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // ── GET /posttests/:algorithm — response (NO correct answers) ───
 
 // PosttestResponse is the top-level response
@@ -88,11 +90,34 @@ type PosttestQuestionResult struct {
 
 // PosttestStatus tells the user's posttest state
 type PosttestStatus struct {
-	Completed     bool `json:"completed"`
-	InProgress    bool `json:"inProgress"`
-	Score         int  `json:"score,omitempty"`
-	Total         int  `json:"total,omitempty"`
-	AnsweredCount int  `json:"answeredCount,omitempty"`
+	Algorithm       string     `json:"algorithm"`
+	Completed       bool       `json:"completed"`
+	InProgress      bool       `json:"inProgress"`
+	Score           *int       `json:"score"`
+	Total           *int       `json:"total"`
+	AnsweredCount   *int       `json:"answeredCount"`
+	ReminderShown   bool       `json:"reminderShown"`
+	ReminderShownAt *time.Time `json:"reminderShownAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+}
+
+// PosttestReminderState is the response payload for reminder-related updates.
+type PosttestReminderState struct {
+	Algorithm       string     `json:"algorithm"`
+	ReminderShown   bool       `json:"reminderShown"`
+	ReminderShownAt *time.Time `json:"reminderShownAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+}
+
+// PosttestReminderSeenRequest is the request body for marking reminder as seen.
+type PosttestReminderSeenRequest struct {
+	Seen   bool   `json:"seen"`
+	Source string `json:"source,omitempty"`
+}
+
+// PosttestReminderResetRequest is the request body for resetting reminder state.
+type PosttestReminderResetRequest struct {
+	Reset bool `json:"reset"`
 }
 
 // ── PUT /posttests/:algorithm/progress — request ────────────────
@@ -111,4 +136,14 @@ type PosttestProgress struct {
 	QuestionIds   []string            `firestore:"questionIds"`
 	Answers       []PosttestAnswerDTO `firestore:"answers"`
 	AnsweredCount int                 `firestore:"answeredCount"`
+}
+
+// PosttestReminderRecord is stored in Firestore per user+algorithm.
+type PosttestReminderRecord struct {
+	UID             string     `firestore:"uid"`
+	Algorithm       string     `firestore:"algorithm"`
+	ReminderShown   bool       `firestore:"reminderShown"`
+	ReminderShownAt *time.Time `firestore:"reminderShownAt"`
+	Source          string     `firestore:"source,omitempty"`
+	UpdatedAt       time.Time  `firestore:"updatedAt"`
 }

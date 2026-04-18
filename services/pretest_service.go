@@ -247,6 +247,10 @@ func GradePretest(uid string, algorithm string, submission models.PretestSubmiss
 	// Delete progress document (pretest is now complete)
 	_, _ = config.Firestore.Collection("pretestProgress").Doc(docID).Delete(ctx)
 
+	if err := RefreshUserProfileProgress(uid); err != nil {
+		fmt.Printf("Warning: failed to refresh user profile progress after pretest submit: %v\n", err)
+	}
+
 	return gradingResult, nil
 }
 

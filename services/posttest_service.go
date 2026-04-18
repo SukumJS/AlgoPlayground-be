@@ -4,12 +4,27 @@ import (
 	"algoplayground/config"
 	"algoplayground/models"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/mitchellh/mapstructure"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	posttestReminderCollection = "posttestReminderState"
+)
+
+var (
+	ErrInvalidAlgorithm      = errors.New("invalid algorithm")
+	ErrInvalidReminderSource = errors.New("invalid reminder source")
+	ErrReminderResetDisabled = errors.New("reminder reset endpoint is disabled")
 )
 
 // postDocID returns Firestore doc ID for a user+algorithm pair
@@ -201,6 +216,14 @@ func GradePosttest(uid string, algorithm string, submission models.PosttestSubmi
 	// Delete progress document
 	_, _ = config.Firestore.Collection("posttestProgress").Doc(docID).Delete(ctx)
 
+	if err := RefreshUserProfileProgress(uid); err != nil {
+		fmt.Printf("Warning: failed to refresh user profile progress after posttest submit: %v\n", err)
+	}
+
+	if _, err := markPosttestReminderSeenInternal(ctx, uid, algorithm, "posttest-completed"); err != nil {
+		fmt.Printf("Warning: failed to mark posttest reminder as seen after submit: %v\n", err)
+	}
+
 	return gradingResult, nil
 }
 
@@ -281,37 +304,301 @@ func gradeOnePosttestQuestion(q models.QuizQuestion, answer models.PosttestAnswe
 // ── Status ──────────────────────────────────────────────────────
 
 func GetPosttestStatus(uid string, algorithm string) (*models.PosttestStatus, error) {
+	if !isSupportedAlgorithmSlug(algorithm) {
+		return nil, ErrInvalidAlgorithm
+	}
+
 	ctx := context.Background()
 	docID := postDocID(uid, algorithm)
+	now := time.Now().UTC()
 
-	// Check completed
+	var resultSnap *posttestResultSnapshot
 	resultDoc, err := config.Firestore.Collection("posttestResults").Doc(docID).Get(ctx)
 	if err == nil {
 		data := resultDoc.Data()
-		score, _ := data["score"].(int64)
-		total, _ := data["totalQuestions"].(int64)
-
-		return &models.PosttestStatus{
-			Completed: true,
-			Score:     int(score),
-			Total:     int(total),
-		}, nil
+		resultSnap = &posttestResultSnapshot{
+			Score:     toInt(data["score"]),
+			Total:     toInt(data["totalQuestions"]),
+			UpdatedAt: resultDoc.UpdateTime.UTC(),
+		}
+	} else if !isNotFoundError(err) {
+		return nil, fmt.Errorf("failed to fetch posttest result: %v", err)
 	}
 
-	// Check in-progress
+	var progressSnap *posttestProgressSnapshot
 	progressDoc, err := config.Firestore.Collection("posttestProgress").Doc(docID).Get(ctx)
 	if err == nil {
 		var progress models.PosttestProgress
 		if err := progressDoc.DataTo(&progress); err == nil {
-			return &models.PosttestStatus{
-				InProgress:    true,
+			progressSnap = &posttestProgressSnapshot{
 				AnsweredCount: progress.AnsweredCount,
 				Total:         len(progress.QuestionIds),
-			}, nil
+				UpdatedAt:     progressDoc.UpdateTime.UTC(),
+			}
+		}
+	} else if !isNotFoundError(err) {
+		return nil, fmt.Errorf("failed to fetch posttest progress: %v", err)
+	}
+
+	reminder, err := getPosttestReminderRecord(ctx, uid, algorithm)
+	if err != nil {
+		return nil, err
+	}
+
+	status := composePosttestStatus(algorithm, resultSnap, progressSnap, reminder, now)
+	return &status, nil
+}
+
+// MarkPosttestReminderSeen records that the reminder modal was dismissed.
+func MarkPosttestReminderSeen(uid string, algorithm string, source string) (*models.PosttestReminderState, error) {
+	if !isSupportedAlgorithmSlug(algorithm) {
+		return nil, ErrInvalidAlgorithm
+	}
+
+	normalizedSource := strings.TrimSpace(strings.ToLower(source))
+	if normalizedSource == "" {
+		normalizedSource = "maybe-later"
+	}
+	if !isValidReminderSource(normalizedSource) {
+		return nil, ErrInvalidReminderSource
+	}
+
+	return markPosttestReminderSeenInternal(context.Background(), uid, algorithm, normalizedSource)
+}
+
+// ResetPosttestReminder resets reminder state for QA/dev only.
+func ResetPosttestReminder(uid string, algorithm string) (*models.PosttestReminderState, error) {
+	if !isReminderResetEnabled() {
+		return nil, ErrReminderResetDisabled
+	}
+
+	if !isSupportedAlgorithmSlug(algorithm) {
+		return nil, ErrInvalidAlgorithm
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	docID := postDocID(uid, algorithm)
+
+	_, err := config.Firestore.Collection(posttestReminderCollection).Doc(docID).Set(ctx, map[string]interface{}{
+		"uid":             uid,
+		"algorithm":       algorithm,
+		"reminderShown":   false,
+		"reminderShownAt": nil,
+		"source":          "reminder-reset",
+		"updatedAt":       now,
+	}, firestore.MergeAll)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reset posttest reminder: %v", err)
+	}
+
+	return &models.PosttestReminderState{
+		Algorithm:       algorithm,
+		ReminderShown:   false,
+		ReminderShownAt: nil,
+		UpdatedAt:       now,
+	}, nil
+}
+
+func markPosttestReminderSeenInternal(ctx context.Context, uid string, algorithm string, source string) (*models.PosttestReminderState, error) {
+	now := time.Now().UTC()
+	docID := postDocID(uid, algorithm)
+	docRef := config.Firestore.Collection(posttestReminderCollection).Doc(docID)
+
+	var shownAt *time.Time
+	doc, err := docRef.Get(ctx)
+	if err == nil {
+		if existing, err := reminderRecordFromDoc(doc); err == nil && existing.ReminderShownAt != nil {
+			t := existing.ReminderShownAt.UTC()
+			shownAt = &t
+		}
+	} else if !isNotFoundError(err) {
+		return nil, fmt.Errorf("failed to fetch posttest reminder: %v", err)
+	}
+
+	if shownAt == nil {
+		t := now
+		shownAt = &t
+	}
+
+	_, err = docRef.Set(ctx, map[string]interface{}{
+		"uid":             uid,
+		"algorithm":       algorithm,
+		"reminderShown":   true,
+		"reminderShownAt": shownAt,
+		"source":          source,
+		"updatedAt":       now,
+	}, firestore.MergeAll)
+	if err != nil {
+		return nil, fmt.Errorf("failed to mark posttest reminder as seen: %v", err)
+	}
+
+	return &models.PosttestReminderState{
+		Algorithm:       algorithm,
+		ReminderShown:   true,
+		ReminderShownAt: shownAt,
+		UpdatedAt:       now,
+	}, nil
+}
+
+type posttestResultSnapshot struct {
+	Score     int
+	Total     int
+	UpdatedAt time.Time
+}
+
+type posttestProgressSnapshot struct {
+	AnsweredCount int
+	Total         int
+	UpdatedAt     time.Time
+}
+
+func composePosttestStatus(algorithm string, resultSnap *posttestResultSnapshot, progressSnap *posttestProgressSnapshot, reminder *models.PosttestReminderRecord, now time.Time) models.PosttestStatus {
+	zero := 0
+	out := models.PosttestStatus{
+		Algorithm:       algorithm,
+		Completed:       false,
+		InProgress:      false,
+		Score:           nil,
+		Total:           nil,
+		AnsweredCount:   &zero,
+		ReminderShown:   false,
+		ReminderShownAt: nil,
+		UpdatedAt:       time.Time{},
+	}
+
+	if progressSnap != nil {
+		out.InProgress = true
+		out.AnsweredCount = intPtr(progressSnap.AnsweredCount)
+		out.Total = intPtr(progressSnap.Total)
+		out.UpdatedAt = maxTimeOrDefault(out.UpdatedAt, progressSnap.UpdatedAt)
+	}
+
+	if resultSnap != nil {
+		out.Completed = true
+		out.InProgress = false
+		out.Score = intPtr(resultSnap.Score)
+		out.Total = intPtr(resultSnap.Total)
+		out.AnsweredCount = nil
+		out.UpdatedAt = maxTimeOrDefault(out.UpdatedAt, resultSnap.UpdatedAt)
+	}
+
+	if reminder != nil {
+		out.ReminderShown = reminder.ReminderShown
+		out.ReminderShownAt = reminder.ReminderShownAt
+		out.UpdatedAt = maxTimeOrDefault(out.UpdatedAt, reminder.UpdatedAt)
+	}
+
+	if out.Completed {
+		out.ReminderShown = true
+		if out.ReminderShownAt == nil && resultSnap != nil {
+			t := resultSnap.UpdatedAt
+			out.ReminderShownAt = &t
 		}
 	}
 
-	return &models.PosttestStatus{}, nil
+	if out.UpdatedAt.IsZero() {
+		out.UpdatedAt = now
+	}
+
+	return out
+}
+
+func getPosttestReminderRecord(ctx context.Context, uid string, algorithm string) (*models.PosttestReminderRecord, error) {
+	docID := postDocID(uid, algorithm)
+	doc, err := config.Firestore.Collection(posttestReminderCollection).Doc(docID).Get(ctx)
+	if isNotFoundError(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch posttest reminder: %v", err)
+	}
+
+	record, err := reminderRecordFromDoc(doc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse posttest reminder: %v", err)
+	}
+
+	return record, nil
+}
+
+func reminderRecordFromDoc(doc *firestore.DocumentSnapshot) (*models.PosttestReminderRecord, error) {
+	var record models.PosttestReminderRecord
+	if err := doc.DataTo(&record); err != nil {
+		return nil, err
+	}
+
+	if record.UpdatedAt.IsZero() {
+		record.UpdatedAt = doc.UpdateTime.UTC()
+	} else {
+		record.UpdatedAt = record.UpdatedAt.UTC()
+	}
+
+	if record.ReminderShownAt != nil {
+		t := record.ReminderShownAt.UTC()
+		record.ReminderShownAt = &t
+	}
+
+	return &record, nil
+}
+
+func isSupportedAlgorithmSlug(algorithm string) bool {
+	_, ok := algorithmCategoryCatalog[algorithm]
+	return ok
+}
+
+func isValidReminderSource(source string) bool {
+	switch source {
+	case "maybe-later", "posttest-completed", "system-sync":
+		return true
+	default:
+		return false
+	}
+}
+
+func isReminderResetEnabled() bool {
+	// Explicit opt-in only to avoid accidental enablement in production.
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("POSTTEST_REMINDER_RESET_ENABLED")), "true")
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+func maxTimeOrDefault(a, b time.Time) time.Time {
+	if a.IsZero() {
+		return b
+	}
+	return maxTime(a, b)
+}
+
+func intPtr(v int) *int {
+	value := v
+	return &value
+}
+
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	case float32:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func isNotFoundError(err error) bool {
+	return status.Code(err) == codes.NotFound
 }
 
 // ── Internal helpers ────────────────────────────────────────────
