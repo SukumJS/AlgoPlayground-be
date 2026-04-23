@@ -39,6 +39,7 @@ func RequireAuth() gin.HandlerFunc {
 				Claims: map[string]interface{}{
 					"email":   "test@gmail.com",
 					"picture": "",
+					"email_verified": true,
 				},
 			})
 
@@ -56,6 +57,18 @@ func RequireAuth() gin.HandlerFunc {
 		token, err := config.AuthClient.VerifyIDToken(context.Background(), idToken)
 		if err != nil {
 			utils.Error(c, http.StatusUnauthorized, "Invalid ID token")
+			c.Abort()
+			return
+		}
+
+		// ดึงค่า email_verified จาก Token Claims มาตรวจสอบ
+		// ใช้ type assertion .(bool) เพื่อแปลงค่า
+		emailVerified, ok := token.Claims["email_verified"].(bool)
+		
+		// ถ้าผู้ใช้ล็อกอินด้วย Google ค่านี้จะเป็น true อัตโนมัติ
+		// ถ้าสมัครด้วย Email/Password ค่านี้จะเป็น false จนกว่าจะกดลิงก์ในอีเมล
+		if !ok || !emailVerified {
+			utils.Error(c, http.StatusForbidden, "Please verify your email address first")
 			c.Abort()
 			return
 		}
