@@ -13,9 +13,6 @@ func setupQuizRoutes(r *gin.Engine) {
 	// Use the Auth middleware for all routes in this group
 	quiz.Use(middlewares.RequireAuth())
 
-	// Example: GET /quiz?algorithm=array&typeQuiz=pretest
-	quiz.GET("", handlers.GetQuizzes)
-
 	// Create multiple quizzes
 	quiz.POST("/batch", handlers.CreateQuizzes)
 }
