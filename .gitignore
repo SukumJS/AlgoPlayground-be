@@ -10,6 +10,7 @@
 
 # Test binary, built with `go test -c`
 *.test
+test
 
 # Code coverage profiles and other test artifacts
 *.out
@@ -26,6 +27,12 @@ go.work.sum
 
 # env file
 .env
+
+# firebase secret
+*firebase*.json
+
+# temp files
+tmp/
 
 # Editor/IDE
 # .idea/
