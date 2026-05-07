@@ -20,6 +20,7 @@ type PosttestQuestionDTO struct {
 	Text          string      `json:"text"`
 	QuestionImage string      `json:"questionImage,omitempty"`
 	Question      interface{} `json:"question"` // type-specific payload
+	FromPretest   bool        `json:"fromPretest,omitempty"`
 }
 
 // PosttestMultipleChoiceDTO — choices only, NO correctChoiceId
@@ -131,11 +132,12 @@ type PosttestProgressRequest struct {
 
 // PosttestProgress is stored in Firestore
 type PosttestProgress struct {
-	UID           string              `firestore:"uid"`
-	Algorithm     string              `firestore:"algorithm"`
-	QuestionIds   []string            `firestore:"questionIds"`
-	Answers       []PosttestAnswerDTO `firestore:"answers"`
-	AnsweredCount int                 `firestore:"answeredCount"`
+	UID            string              `firestore:"uid"`
+	Algorithm      string              `firestore:"algorithm"`
+	QuestionIds    []string            `firestore:"questionIds"`
+	Answers        []PosttestAnswerDTO `firestore:"answers"`
+	AnsweredCount  int                 `firestore:"answeredCount"`
+	FromPretestIds []string            `firestore:"fromPretestIds,omitempty"`
 }
 
 // PosttestReminderRecord is stored in Firestore per user+algorithm.

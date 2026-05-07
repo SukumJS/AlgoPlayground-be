@@ -44,7 +44,11 @@ func GetPosttestByAlgorithm(uid string, algorithm string) (*models.PosttestRespo
 	if err == nil {
 		var progress models.PosttestProgress
 		if err := progressDoc.DataTo(&progress); err == nil && len(progress.QuestionIds) > 0 {
-			questions, err := fetchPosttestQuestionsByIDs(ctx, progress.QuestionIds)
+			fromPretestSet := make(map[string]bool, len(progress.FromPretestIds))
+			for _, id := range progress.FromPretestIds {
+				fromPretestSet[id] = true
+			}
+			questions, err := fetchPosttestQuestionsByIDs(ctx, progress.QuestionIds, fromPretestSet)
 			if err != nil {
 				return nil, err
 			}
@@ -86,23 +90,57 @@ func GetPosttestByAlgorithm(uid string, algorithm string) (*models.PosttestRespo
 
 	selected := selectPosttestQuestions(allQuestions, 5)
 
+	// Replace some posttest MC questions with wrong pretest questions (total stays 5)
+	pretestWrong := fetchPretestWrongQuestionsForPosttest(ctx, uid, algorithm)
+	if len(pretestWrong) > 0 {
+		mcIndices := []int{}
+		for i, pq := range selected {
+			if pq.quiz.Type == "multiple_choice" {
+				mcIndices = append(mcIndices, i)
+			}
+		}
+		replaceCount := len(pretestWrong)
+		if replaceCount > len(mcIndices) {
+			replaceCount = len(mcIndices)
+		}
+		removeSet := make(map[int]bool, replaceCount)
+		for _, idx := range mcIndices[:replaceCount] {
+			removeSet[idx] = true
+		}
+		kept := make([]parsedPosttestQuestion, 0, 5)
+		for i, pq := range selected {
+			if !removeSet[i] {
+				kept = append(kept, pq)
+			}
+		}
+		kept = append(kept, pretestWrong[:replaceCount]...)
+		rand.Shuffle(len(kept), func(i, j int) { kept[i], kept[j] = kept[j], kept[i] })
+		selected = kept
+	}
+
 	dtos := make([]models.PosttestQuestionDTO, 0, len(selected))
 	questionIds := make([]string, 0, len(selected))
+	fromPretestIds := make([]string, 0)
 	for _, pq := range selected {
 		dto := transformPosttestToDTO(pq.quiz)
 		if dto != nil {
+			dto.FromPretest = pq.fromPretest
 			dtos = append(dtos, *dto)
 			questionIds = append(questionIds, pq.quiz.ID)
+			if pq.fromPretest {
+				fromPretestIds = append(fromPretestIds, pq.quiz.ID)
+			}
 		}
 	}
 
 	// 3) Create progress document
 	_, err = config.Firestore.Collection("posttestProgress").Doc(docID).Set(ctx, models.PosttestProgress{
-		UID:           uid,
-		Algorithm:     algorithm,
-		QuestionIds:   questionIds,
-		Answers:       []models.PosttestAnswerDTO{},
-		AnsweredCount: 0,
+		UID:            uid,
+		Algorithm:      algorithm,
+		QuestionIds:    questionIds,
+		Answers:        []models.PosttestAnswerDTO{},
+		AnsweredCount:  0,
+		FromPretestIds: fromPretestIds,
 	})
 	if err != nil {
 		fmt.Printf("Warning: failed to create posttest progress doc: %v\n", err)
@@ -604,7 +642,8 @@ func isNotFoundError(err error) bool {
 // ── Internal helpers ────────────────────────────────────────────
 
 type parsedPosttestQuestion struct {
-	quiz models.QuizQuestion
+	quiz        models.QuizQuestion
+	fromPretest bool
 }
 
 func mapOrderingItemsToIDs(items []models.OrderingItem, canvasData *models.CanvasData) ([]models.PosttestOrderItemDTO, map[string][]string) {
@@ -653,6 +692,61 @@ func mapOrderingItemsToIDs(items []models.OrderingItem, canvasData *models.Canva
 	return result, labelToIDs
 }
 
+// fetchPretestWrongQuestionsForPosttest returns up to 2 questions the user answered
+// incorrectly in their pretest. Returns nil if no pretest result exists.
+func fetchPretestWrongQuestionsForPosttest(ctx context.Context, uid, algorithm string) []parsedPosttestQuestion {
+	docID := progressDocID(uid, algorithm)
+	doc, err := config.Firestore.Collection("pretestResults").Doc(docID).Get(ctx)
+	if err != nil {
+		return nil
+	}
+
+	data := doc.Data()
+	rawResults, ok := data["results"].([]interface{})
+	if !ok {
+		return nil
+	}
+
+	wrongIds := []string{}
+	for _, r := range rawResults {
+		m, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		isCorrect, _ := m["isCorrect"].(bool)
+		qid, _ := m["questionId"].(string)
+		if !isCorrect && qid != "" {
+			wrongIds = append(wrongIds, qid)
+		}
+	}
+
+	if len(wrongIds) == 0 {
+		return nil
+	}
+
+	rand.Shuffle(len(wrongIds), func(i, j int) { wrongIds[i], wrongIds[j] = wrongIds[j], wrongIds[i] })
+	count := 1
+	if len(wrongIds) >= 2 {
+		count = 2
+	}
+	wrongIds = wrongIds[:count]
+
+	result := make([]parsedPosttestQuestion, 0, count)
+	for _, qid := range wrongIds {
+		qDoc, err := config.Firestore.Collection("quizQuestions").Doc(qid).Get(ctx)
+		if err != nil {
+			continue
+		}
+		var q models.QuizQuestion
+		if err := qDoc.DataTo(&q); err != nil {
+			continue
+		}
+		q.ID = qDoc.Ref.ID
+		result = append(result, parsedPosttestQuestion{quiz: q, fromPretest: true})
+	}
+	return result
+}
+
 func selectPosttestQuestions(all []parsedPosttestQuestion, count int) []parsedPosttestQuestion {
 	types := []string{"multiple_choice", "fill_blank", "ordering"}
 
@@ -698,7 +792,7 @@ func selectPosttestQuestions(all []parsedPosttestQuestion, count int) []parsedPo
 	return selected
 }
 
-func fetchPosttestQuestionsByIDs(ctx context.Context, ids []string) ([]models.PosttestQuestionDTO, error) {
+func fetchPosttestQuestionsByIDs(ctx context.Context, ids []string, fromPretestSet map[string]bool) ([]models.PosttestQuestionDTO, error) {
 	questions := make([]models.PosttestQuestionDTO, 0, len(ids))
 
 	for _, id := range ids {
@@ -714,6 +808,7 @@ func fetchPosttestQuestionsByIDs(ctx context.Context, ids []string) ([]models.Po
 		q.ID = doc.Ref.ID
 		dto := transformPosttestToDTO(q)
 		if dto != nil {
+			dto.FromPretest = fromPretestSet[id]
 			questions = append(questions, *dto)
 		}
 	}
